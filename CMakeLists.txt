@@ -29,6 +29,7 @@ target_link_libraries(goby3-clang-tool
 #  clangRewriteFrontend
   clangEdit
   clangAST
+  clangASTMatchers
   clangLex
   clangBasic
 #  clang
