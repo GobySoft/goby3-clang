@@ -16,9 +16,9 @@ class Group
 class StaticTransporterInterface
 {
   public:
-    template <const Group& group, typename Data> void publish(const Data& data) {}
+    template <const Group& group, typename Data, int scheme = 42> void publish(const Data& data) {}
 
-    template <const Group& group, typename Data> void subscribe() {}
+    template <const Group& group, typename Data, int scheme = 42> void subscribe() {}
     
     void baz() {}
 };
