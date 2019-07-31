@@ -30,55 +30,59 @@ class LoopPrinter : public MatchFinder::MatchCallback
     }
 };
 
-StatementMatcher PublishMatcher =
-    cxxMemberCallExpr(
-        on(hasType(
-            cxxRecordDecl(isDerivedFrom(cxxRecordDecl(hasName("StaticTransporterInterface")))))),
-        callee(cxxMethodDecl(hasName("publish"),
-                             hasAnyTemplateArgument(refersToDeclaration(
-                                 varDecl(hasType(cxxRecordDecl(hasName("::Group"))),
-                                         hasDescendant(cxxConstructExpr().bind("constructExpr")))
-                                     .bind("group_template_decl"))))
-                   .bind("publishDecl")))
-        .bind("publishCall");
+StatementMatcher publish_matcher = cxxMemberCallExpr(
+    // call is on an instantiation of a class derived from StaticTransporterInterface
+    on(hasType(cxxRecordDecl(
+        isDerivedFrom(cxxRecordDecl(hasName("::goby::middleware::StaticTransporterInterface")))))),
+    // callee is publish, with a template argument of an instantiation of Group
+    callee(cxxMethodDecl(hasName("publish"),
+                         hasAnyTemplateArgument(refersToDeclaration(
+                             varDecl(hasType(cxxRecordDecl(hasName("::goby::middleware::Group"))),
+                                     // find the actual string argument and bind it
+                                     hasDescendant(cxxConstructExpr(hasArgument(
+                                         0, stringLiteral().bind("group_string_arg"))))))))));
+
+StatementMatcher subscribe_matcher = cxxMemberCallExpr(
+    // call is on an instantiation of a class derived from StaticTransporterInterface
+    on(hasType(cxxRecordDecl(
+        isDerivedFrom(cxxRecordDecl(hasName("::goby::middleware::StaticTransporterInterface")))))),
+    // callee is subscribe, with a template argument of an instantiation of Group
+    callee(cxxMethodDecl(hasName("subscribe"),
+                         hasAnyTemplateArgument(refersToDeclaration(
+                             varDecl(hasType(cxxRecordDecl(hasName("::goby::middleware::Group"))),
+                                     // find the actual string argument and bind it
+                                     hasDescendant(cxxConstructExpr(hasArgument(
+                                         0, stringLiteral().bind("group_string_arg"))))))))));
+
 
 class PublishPrinter : public MatchFinder::MatchCallback
 {
   public:
     virtual void run(const MatchFinder::MatchResult& Result)
     {
-        // if (const auto* e = Result.Nodes.getNodeAs<clang::CXXMemberCallExpr>("publishCall"))
-        // {
-        //     std::cout << "Call:" << std::endl;
-        //     e->dump();
-        // }
-
-        // if (const auto* d = Result.Nodes.getNodeAs<clang::CXXMethodDecl>("publishDecl"))
-        // {
-        //     std::cout << "Decl:" << std::endl;
-        //     d->dump();
-
-        //     FunctionTemplateSpecializationInfo* tpl_info = d->getTemplateSpecializationInfo();
-        //     if (tpl_info)
-        //     {
-        //         const TemplateArgumentList* tpl_list = tpl_info->TemplateArguments;
-        //         std::cout << "Has " << tpl_list->size() << " template arguments" << std::endl;
-        //     }
-        // }
-
-        // if (const auto* t = Result.Nodes.getNodeAs<clang::VarDecl>("group_template_decl"))
-        // {
-        //     std::cout << "Template Decl: " << std::endl;
-        //     t->dump();
-        // }
-
-        if (const auto* c = Result.Nodes.getNodeAs<clang::CXXConstructExpr>("constructExpr"))
+        if (const auto* a = Result.Nodes.getNodeAs<clang::StringLiteral>("group_string_arg"))
         {
-            std::cout << "Template Decl Constructor: " << std::endl;
-            c->dump();
+            //            std::cout << "Template Decl Constructor Argument: " << std::endl;
+            // a->dump();
+            std::cout << "Publish: " << a->getString().str() << std::endl;
         }
     }
 };
+
+class SubscribePrinter : public MatchFinder::MatchCallback
+{
+  public:
+    virtual void run(const MatchFinder::MatchResult& Result)
+    {
+        if (const auto* a = Result.Nodes.getNodeAs<clang::StringLiteral>("group_string_arg"))
+        {
+            //            std::cout << "Template Decl Constructor Argument: " << std::endl;
+            // a->dump();
+            std::cout << "Subscribe: " << a->getString().str() << std::endl;
+        }
+    }
+};
+
 
 // Apply a custom category to all command-line options so that they are the
 // only ones displayed.
@@ -98,10 +102,12 @@ int main(int argc, const char** argv)
     ClangTool Tool(OptionsParser.getCompilations(), OptionsParser.getSourcePathList());
 
     //  LoopPrinter Printer;
-    PublishPrinter Printer;
-    MatchFinder Finder;
+    PublishPrinter publish_printer;
+    SubscribePrinter subscribe_printer;
+    MatchFinder finder;
     //  Finder.addMatcher(LoopMatcher, &Printer);
-    Finder.addMatcher(PublishMatcher, &Printer);
+    finder.addMatcher(publish_matcher, &publish_printer);
+    finder.addMatcher(subscribe_matcher, &subscribe_printer);
 
-    return Tool.run(newFrontendActionFactory(&Finder).get());
+    return Tool.run(newFrontendActionFactory(&finder).get());
 }
