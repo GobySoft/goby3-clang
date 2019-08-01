@@ -12,34 +12,26 @@ execute_process(COMMAND llvm-config --cxxflags OUTPUT_VARIABLE LLVM_CXX_FLAGS)
 string(STRIP ${LLVM_CXX_FLAGS} LLVM_CXX_FLAGS_CLEAN)
 execute_process(COMMAND llvm-config --ldflags OUTPUT_VARIABLE LLVM_LD_FLAGS)
 string(STRIP ${LLVM_LD_FLAGS} LLVM_LD_FLAGS_CLEAN)
-set(CMAKE_CXX_FLAGS "${LLVM_CXX_FLAGS_CLEAN} ${LLVM_LD_FLAGS_CLEAN}")
+set(CMAKE_CXX_FLAGS "${LLVM_CXX_FLAGS_CLEAN} ${LLVM_LD_FLAGS_CLEAN} -fexceptions")
 
 include_directories(${GOBY_INCLUDE_DIR})
 
-add_executable(goby3-clang-tool tool.cpp)
-target_link_libraries(goby3-clang-tool
+add_executable(goby_clang_tool tool.cpp generate.cpp visualize.cpp)
+target_link_libraries(goby_clang_tool
   PRIVATE
   clangTooling
-#  clangFrontendTool
   clangFrontend
   clangDriver
   clangSerialization
-#  clangCodeGen
   clangParse
   clangSema
-#  clangStaticAnalyzerFrontend
-#  clangStaticAnalyzerCheckers
-#  clangStaticAnalyzerCore
   clangAnalysis
-#  clangARCMigrate
-#  clangRewrite
-#  clangRewriteFrontend
   clangEdit
   clangAST
   clangASTMatchers
   clangLex
   clangBasic
-#  clang
   LLVM
   goby
+  yaml-cpp
   )
