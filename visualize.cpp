@@ -12,9 +12,10 @@ namespace viz
 {
 struct Thread
 {
-    Thread(std::string n, const YAML::Node& yaml)
+    Thread(std::string n) : name(n) {}
+
+    Thread(std::string n, const YAML::Node& yaml) : name(n)
     {
-        name = n;
         auto publish_node = yaml["publishes"];
         for (auto p : publish_node)
             interthread_publishes.emplace(goby::clang::Layer::INTERTHREAD, p, n);
@@ -49,6 +50,15 @@ struct Application
     Application(const YAML::Node& yaml)
     {
         name = yaml["application"].as<std::string>();
+
+        auto interthread_node = yaml["interthread"];
+        if (interthread_node)
+        {
+            for (auto it = interthread_node.begin(), end = interthread_node.end(); it != end; ++it)
+                threads.emplace(it->first.as<std::string>(),
+                                Thread(it->first.as<std::string>(), it->second));
+        }
+
         auto interprocess_node = yaml["interprocess"];
         if (interprocess_node)
         {
@@ -72,16 +82,23 @@ struct Application
                 intervehicle_subscribes.emplace(goby::clang::Layer::INTERVEHICLE, s);
         }
 
-        auto interthread_node = yaml["interthread"];
-        if (interthread_node)
-        {
-            for (auto it = interthread_node.begin(), end = interthread_node.end(); it != end; ++it)
-                threads.emplace(it->first.as<std::string>(), it->second);
-        }
+        auto add_threads = [&](const std::set<PubSubEntry>& pubsubs) {
+            for (const auto& e : pubsubs)
+            {
+                if (!threads.count(e.thread))
+                    threads.emplace(e.thread, Thread(e.thread));
+            }
+        };
+
+        // add main thread name for applications without interthread pub/sub
+        add_threads(interprocess_publishes);
+        add_threads(interprocess_subscribes);
+        add_threads(intervehicle_publishes);
+        add_threads(intervehicle_subscribes);
     }
 
     std::string name;
-    std::set<Thread> threads;
+    std::map<std::string, Thread> threads;
     std::set<PubSubEntry> interprocess_publishes;
     std::set<PubSubEntry> interprocess_subscribes;
     std::set<PubSubEntry> intervehicle_publishes;
@@ -120,7 +137,7 @@ inline std::ostream& operator<<(std::ostream& os, const Application& a)
     {
         os << " | ";
         os << "interthread: ";
-        for (const auto& th : a.threads) os << "{" << th << "}";
+        for (const auto& th_p : a.threads) os << "{" << th_p.second << "}";
     }
 
     return os;
@@ -251,6 +268,57 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
     }
 
     std::cout << deployment << std::endl;
+
+    auto node_name = [](std::string p, std::string a, std::string th) -> std::string {
+        return p + "_" + a + "_" + th;
+    };
+
+    auto write_connection = [&node_name](std::string p, std::string a, const PubSubEntry& pub,
+                                   const PubSubEntry& sub) -> std::string {
+        return node_name(p, a, pub.thread) + "->" + node_name(p, a, sub.thread) + "[label=<" +
+               pub.group + "<br/>" + pub.scheme + "<br/>" + pub.type + ">]\n";
+    };
+
+    int cluster = 0;
+    ofs << "digraph " << deployment.name << " { \n";
+    for (const auto& platform : deployment.platforms)
+    {
+        ofs << "\tsubgraph cluster_" << cluster++ << " {\n";
+        ofs << "\tlabel=\"" << platform.name << "\"\n";
+        for (const auto& application : platform.applications)
+        {
+            ofs << "\t\tlabel=\"" << application.name << "\"\n";
+            ofs << "\t\tsubgraph cluster_" << cluster++ << " {\n";
+            for (const auto& thread_p : application.threads)
+            {
+                const auto& thread = thread_p.second;
+
+                ofs << "\t\t\t" << node_name(platform.name, application.name, thread.name)
+                    << " [label=\"" << thread.name << "\"]\n";
+
+                for (const auto& pub : thread.interthread_publishes)
+                {
+                    for (const auto& inner_thread_p : application.threads)
+                    {
+                        const auto& inner_thread = inner_thread_p.second;
+                        for (const auto& sub : inner_thread.interthread_subscribes)
+                        {
+                            if (goby::clang::connects(pub, sub))
+                            {
+                                ofs << "\t\t\t"
+                                    << write_connection(platform.name, application.name, pub, sub)
+                                    << "\n";
+                            }
+                        }
+                    }
+                }
+            }
+            ofs << "\t\t}\n";
+        }
+        ofs << "\t}\n";
+    }
+
+    ofs << "}\n";
 
     return 0;
 }
