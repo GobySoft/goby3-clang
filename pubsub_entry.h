@@ -27,7 +27,7 @@ struct PubSubEntry
             thread = thread_node.as<std::string>();
         else
             thread = th;
-        
+
         group = yaml["group"].as<std::string>();
         scheme = yaml["scheme"].as<std::string>();
         type = yaml["type"].as<std::string>();
@@ -77,7 +77,9 @@ inline bool operator<(const PubSubEntry& a, const PubSubEntry& b)
 
 inline bool connects(const PubSubEntry& a, const PubSubEntry& b)
 {
-    return a.layer == b.layer && a.group == b.group && a.scheme == b.scheme && a.type == b.type;
+    return a.layer == b.layer && a.group == b.group &&
+           (a.scheme == b.scheme || a.scheme == "CXX_OBJECT" || b.scheme == "CXX_OBJECT") &&
+           a.type == b.type;
 }
 
 } // namespace clang

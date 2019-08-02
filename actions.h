@@ -17,10 +17,10 @@ namespace goby
 namespace clang
 {
 int generate(::clang::tooling::ClangTool& Tool, std::string output_directory,
-             std::string target_name);
+             std::string output_file, std::string target_name);
 int visualize(const std::vector<std::string>& ymls, std::string output_directory,
-              std::string deployment_name);
-}
+              std::string output_file, std::string deployment_name);
+} // namespace clang
 } // namespace goby
 
 #endif

@@ -37,11 +37,17 @@ static cl::opt<std::string> OutDir("outdir",
                                    cl::value_desc("dir"), cl::init("."),
                                    cl::cat(Goby3ToolCategory));
 
-static cl::opt<std::string> Deployment(
-    "deployment",
-    cl::desc(
-        "Specify deployment name for 'viz' action that summarizes the collection of yml files or the path to a deployment yml file"),
-    cl::value_desc("name"), cl::cat(Goby3ToolCategory));
+static cl::opt<std::string>
+    OutFile("o",
+            cl::desc("Specify output file name (optional, defaults to {target}_interface.yml for "
+                     "-gen and {deployment}.dot for -viz)"),
+            cl::value_desc("file.[yml|dot]"), cl::cat(Goby3ToolCategory));
+
+static cl::opt<std::string>
+    Deployment("deployment",
+               cl::desc("Specify deployment name for 'viz' action that summarizes the collection "
+                        "of yml files or the path to a deployment yml file"),
+               cl::value_desc("name"), cl::cat(Goby3ToolCategory));
 
 int main(int argc, const char** argv)
 {
@@ -56,11 +62,11 @@ int main(int argc, const char** argv)
         }
         clang::tooling::ClangTool Tool(OptionsParser.getCompilations(),
                                        OptionsParser.getSourcePathList());
-        return goby::clang::generate(Tool, OutDir, Target);
+        return goby::clang::generate(Tool, OutDir, OutFile, Target);
     }
     else if (Visualize)
     {
-        return goby::clang::visualize(OptionsParser.getSourcePathList(), OutDir, Deployment);
+        return goby::clang::visualize(OptionsParser.getSourcePathList(), OutDir, OutFile, Deployment);
     }
     else
     {

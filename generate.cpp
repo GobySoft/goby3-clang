@@ -116,7 +116,7 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
     std::set<PubSubEntry> entries_;
 };
 
-int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_directory,
+int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_directory, std::string output_file,
                           std::string target_name)
 {
     PubSubAggregator publish_aggregator, subscribe_aggregator;
@@ -125,7 +125,10 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
     finder.addMatcher(pubsub_matcher("publish"), &publish_aggregator);
     finder.addMatcher(pubsub_matcher("subscribe"), &subscribe_aggregator);
 
-    std::string file_name(output_directory + "/" + target_name + "_interface.yml");
+    if(output_file.empty())
+        output_file = target_name + "_interface.yml";
+    
+    std::string file_name(output_directory + "/" + output_file);
     std::ofstream ofs(file_name.c_str());
     if (!ofs.is_open())
     {

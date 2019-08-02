@@ -1,3 +1,4 @@
+#include <boost/algorithm/string.hpp>
 #include <fstream>
 #include <iostream>
 
@@ -199,8 +200,110 @@ inline std::ostream& operator<<(std::ostream& os, const Deployment& d)
 
 } // namespace viz
 
+const auto vehicle_color = "darkgreen";
+const auto process_color = "dodgerblue4";
+const auto thread_color = "purple4";
+
+std::string node_name(std::string p, std::string a, std::string th)
+{
+    std::vector<char> reserved{{':', '&', '<', '>', ' ', ','}};
+
+    for (char r : reserved)
+    {
+        std::string search(1, r);
+        auto replacement = "_" + std::to_string(static_cast<int>(r)) + "_";
+        boost::replace_all(p, search, replacement);
+        boost::replace_all(a, search, replacement);
+        boost::replace_all(th, search, replacement);
+    }
+
+    return p + "_" + a + "_" + th;
+}
+
+std::string connection_with_label(std::string pub_platform, std::string pub_application,
+                                  const PubSubEntry& pub, std::string sub_platform,
+                                  std::string sub_application, const PubSubEntry& sub,
+                                  std::string color)
+{
+    return node_name(pub_platform, pub_application, pub.thread) + "->" +
+           node_name(sub_platform, sub_application, sub.thread) + "[label=<<b>" + pub.group +
+           "</b><br/><font point-size=\"8\">" + pub.scheme +
+           "</font><br/><font point-size=\"10\">" + pub.type + "</font>>" + "color=" + color +
+           "]\n";
+}
+
+void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
+                              const viz::Application& application, const viz::Thread& thread)
+{
+    for (const auto& pub : thread.interthread_publishes)
+    {
+        for (const auto& sub_thread_p : application.threads)
+        {
+            const auto& sub_thread = sub_thread_p.second;
+            for (const auto& sub : sub_thread.interthread_subscribes)
+            {
+                if (goby::clang::connects(pub, sub))
+                {
+                    ofs << "\t\t\t"
+                        << connection_with_label(platform.name, application.name, pub,
+                                                 platform.name, application.name, sub, thread_color)
+                        << "\n";
+                }
+            }
+        }
+    }
+}
+
+void write_process_connections(std::ofstream& ofs, const viz::Platform& platform,
+                               const viz::Application& pub_application)
+{
+    for (const auto& pub : pub_application.interprocess_publishes)
+    {
+        for (const auto& sub_application : platform.applications)
+        {
+            for (const auto& sub : sub_application.interprocess_subscribes)
+            {
+                if (goby::clang::connects(pub, sub))
+                {
+                    ofs << "\t\t"
+                        << connection_with_label(platform.name, pub_application.name, pub,
+                                                 platform.name, sub_application.name, sub,
+                                                 process_color)
+                        << "\n";
+                }
+            }
+        }
+    }
+}
+
+void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deployment,
+                               const viz::Platform& pub_platform,
+                               const viz::Application& pub_application)
+{
+    for (const auto& pub : pub_application.intervehicle_publishes)
+    {
+        for (const auto& sub_platform : deployment.platforms)
+        {
+            for (const auto& sub_application : sub_platform.applications)
+            {
+                for (const auto& sub : sub_application.intervehicle_subscribes)
+                {
+                    if (goby::clang::connects(pub, sub))
+                    {
+                        ofs << "\t\t"
+                            << connection_with_label(pub_platform.name, pub_application.name, pub,
+                                                     sub_platform.name, sub_application.name, sub,
+                                                     vehicle_color)
+                            << "\n";
+                    }
+                }
+            }
+        }
+    }
+}
+
 int goby::clang::visualize(const std::vector<std::string>& yamls, std::string output_directory,
-                           std::string deployment_config_input)
+                           std::string output_file, std::string deployment_config_input)
 {
     std::string deployment_name;
 
@@ -259,7 +362,10 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
     viz::Deployment deployment(deployment_name, platform_yamls);
 
-    std::string file_name(output_directory + "/" + deployment.name + ".dot");
+    if(output_file.empty())
+        output_file = deployment.name + ".dot";
+    
+    std::string file_name(output_directory + "/" + output_file);
     std::ofstream ofs(file_name.c_str());
     if (!ofs.is_open())
     {
@@ -269,53 +375,36 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
     std::cout << deployment << std::endl;
 
-    auto node_name = [](std::string p, std::string a, std::string th) -> std::string {
-        return p + "_" + a + "_" + th;
-    };
-
-    auto write_connection = [&node_name](std::string p, std::string a, const PubSubEntry& pub,
-                                   const PubSubEntry& sub) -> std::string {
-        return node_name(p, a, pub.thread) + "->" + node_name(p, a, sub.thread) + "[label=<" +
-               pub.group + "<br/>" + pub.scheme + "<br/>" + pub.type + ">]\n";
-    };
-
     int cluster = 0;
     ofs << "digraph " << deployment.name << " { \n";
     for (const auto& platform : deployment.platforms)
     {
         ofs << "\tsubgraph cluster_" << cluster++ << " {\n";
         ofs << "\tlabel=\"" << platform.name << "\"\n";
+        ofs << "\tfontcolor=\"" << vehicle_color << "\"\n";
         for (const auto& application : platform.applications)
         {
-            ofs << "\t\tlabel=\"" << application.name << "\"\n";
             ofs << "\t\tsubgraph cluster_" << cluster++ << " {\n";
+            ofs << "\t\tlabel=\"" << application.name << "\"\n";
+            ofs << "\t\tfontcolor=\"" << process_color << "\"\n";
             for (const auto& thread_p : application.threads)
             {
                 const auto& thread = thread_p.second;
 
                 ofs << "\t\t\t" << node_name(platform.name, application.name, thread.name)
-                    << " [label=\"" << thread.name << "\"]\n";
+                    << " [label=\"" << thread.name << "\",fontcolor=" << thread_color
+                    << ",shape=box]\n";
 
-                for (const auto& pub : thread.interthread_publishes)
-                {
-                    for (const auto& inner_thread_p : application.threads)
-                    {
-                        const auto& inner_thread = inner_thread_p.second;
-                        for (const auto& sub : inner_thread.interthread_subscribes)
-                        {
-                            if (goby::clang::connects(pub, sub))
-                            {
-                                ofs << "\t\t\t"
-                                    << write_connection(platform.name, application.name, pub, sub)
-                                    << "\n";
-                            }
-                        }
-                    }
-                }
+                write_thread_connections(ofs, platform, application, thread);
             }
             ofs << "\t\t}\n";
+
+            write_process_connections(ofs, platform, application);
         }
         ofs << "\t}\n";
+
+        for (const auto& application : platform.applications)
+            write_vehicle_connections(ofs, deployment, platform, application);
     }
 
     ofs << "}\n";
