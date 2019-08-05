@@ -373,8 +373,6 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
         exit(EXIT_FAILURE);
     }
 
-    std::cout << deployment << std::endl;
-
     int cluster = 0;
     ofs << "digraph " << deployment.name << " { \n";
     for (const auto& platform : deployment.platforms)
