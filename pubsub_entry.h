@@ -5,6 +5,11 @@
 
 #include "yaml_raii.h"
 
+namespace viz
+{
+class Thread;
+}
+
 namespace goby
 {
 namespace clang
@@ -19,6 +24,9 @@ enum class Layer
 
 struct PubSubEntry
 {
+    PubSubEntry(Layer l, const YAML::Node& yaml,
+                const std::map<std::string, std::shared_ptr<viz::Thread>> threads);
+
     PubSubEntry(Layer l, const YAML::Node& yaml, const std::string& th = "")
     {
         layer = l;
@@ -31,6 +39,9 @@ struct PubSubEntry
         group = yaml["group"].as<std::string>();
         scheme = yaml["scheme"].as<std::string>();
         type = yaml["type"].as<std::string>();
+        auto inner_node = yaml["inner"];
+        if (inner_node && inner_node.as<bool>())
+            is_inner_pub = true;
     }
 
     PubSubEntry(Layer l, std::string th, std::string g, std::string s, std::string t)
@@ -40,11 +51,13 @@ struct PubSubEntry
 
     Layer layer{Layer::UNKNOWN};
     std::string thread;
+
     std::string group;
     std::string scheme;
     std::string type;
 
-    void write_yaml_map(YAML::Emitter& yaml_out, bool include_thread = true) const
+    void write_yaml_map(YAML::Emitter& yaml_out, bool include_thread = true,
+                        bool inner_pub = false) const
     {
         goby::yaml::YMap entry_map(yaml_out, false);
         entry_map.add("group", group);
@@ -52,7 +65,13 @@ struct PubSubEntry
         entry_map.add("type", type);
         if (include_thread)
             entry_map.add("thread", thread);
+
+        // publication was automatically added to this scope from an outer publisher
+        if (inner_pub)
+            entry_map.add("inner", "true");
     }
+
+    bool is_inner_pub{false};
 };
 
 inline std::ostream& operator<<(std::ostream& os, const PubSubEntry& e)
@@ -96,5 +115,57 @@ inline void remove_disconnected(PubSubEntry pub, PubSubEntry sub,
 
 } // namespace clang
 } // namespace goby
+
+namespace viz
+{
+struct Thread
+{
+    Thread(std::string n, std::set<std::string> b = std::set<std::string>()) : name(n), bases(b) {}
+    Thread(std::string n, const YAML::Node& y, std::set<std::string> b = std::set<std::string>())
+        : name(n), bases(b), yaml(y)
+    {
+    }
+
+    void parse_yaml()
+    {
+        auto publish_node = yaml["publishes"];
+        for (auto p : publish_node)
+            interthread_publishes.emplace(goby::clang::Layer::INTERTHREAD, p, most_derived_name());
+
+        auto subscribe_node = yaml["subscribes"];
+        for (auto s : subscribe_node)
+            interthread_subscribes.emplace(goby::clang::Layer::INTERTHREAD, s, most_derived_name());
+    }
+
+    std::string most_derived_name()
+    {
+        if (parent)
+            return parent->most_derived_name();
+        else
+            return name;
+    }
+
+    std::string name;
+    std::set<std::string> bases;
+    YAML::Node yaml;
+
+    // child thread instance if we're not a direct base of SimpleThread
+    std::shared_ptr<Thread> child;
+    // this thread has a parent who isn't a direct base of SimpleThread
+    std::shared_ptr<Thread> parent;
+
+    std::set<goby::clang::PubSubEntry> interthread_publishes;
+    std::set<goby::clang::PubSubEntry> interthread_subscribes;
+};
+} // namespace viz
+
+inline goby::clang::PubSubEntry::PubSubEntry(
+    Layer l, const YAML::Node& yaml,
+    const std::map<std::string, std::shared_ptr<viz::Thread>> threads)
+    : PubSubEntry(l, yaml)
+{
+    if (threads.count(thread))
+        thread = threads.at(thread)->most_derived_name();
+}
 
 #endif

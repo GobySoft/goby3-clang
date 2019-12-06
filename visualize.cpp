@@ -11,25 +11,6 @@ using goby::clang::PubSubEntry;
 
 namespace viz
 {
-struct Thread
-{
-    Thread(std::string n) : name(n) {}
-
-    Thread(std::string n, const YAML::Node& yaml) : name(n)
-    {
-        auto publish_node = yaml["publishes"];
-        for (auto p : publish_node)
-            interthread_publishes.emplace(goby::clang::Layer::INTERTHREAD, p, n);
-
-        auto subscribe_node = yaml["subscribes"];
-        for (auto s : subscribe_node)
-            interthread_subscribes.emplace(goby::clang::Layer::INTERTHREAD, s, n);
-    }
-
-    std::string name;
-    std::set<PubSubEntry> interthread_publishes;
-    std::set<PubSubEntry> interthread_subscribes;
-};
 
 inline bool operator<(const Thread& a, const Thread& b) { return a.name < b.name; }
 
@@ -60,8 +41,50 @@ struct Application
             {
                 auto thread_node = *it;
                 auto thread_name = thread_node["name"].as<std::string>();
-                threads.emplace(thread_name, Thread(thread_name, thread_node));
+                auto bases_node = thread_node["bases"];
+                std::set<std::string> bases;
+                if (bases_node)
+                {
+                    for (auto base : bases_node) bases.insert(base.as<std::string>());
+                }
+
+                threads.emplace(thread_name,
+                                std::make_shared<Thread>(thread_name, thread_node, bases));
             }
+
+            // crosslink threads that aren't direct subclasses of goby::middleware::SimpleThread
+            for (auto& thread_p : threads)
+            {
+                auto& bases = thread_p.second->bases;
+                bool is_direct_thread_subclass = false;
+                for (const auto base : bases)
+                {
+                    if (base.find("goby::middleware::SimpleThread") == 0)
+                        is_direct_thread_subclass = true;
+                }
+
+                if (!is_direct_thread_subclass)
+                {
+                    for (auto& base_thread_p : threads)
+                    {
+                        for (const auto base : bases)
+                        {
+                            if (base == base_thread_p.first)
+                            {
+                                thread_p.second->child = base_thread_p.second;
+                                base_thread_p.second->parent = thread_p.second;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // after crosslinking, actually parse the yaml
+            for (auto& thread_p : threads)
+            {
+                thread_p.second->parse_yaml();
+            }
+
         }
 
         auto interprocess_node = yaml["interprocess"];
@@ -69,29 +92,29 @@ struct Application
         {
             auto publish_node = interprocess_node["publishes"];
             for (auto p : publish_node)
-                interprocess_publishes.emplace(goby::clang::Layer::INTERPROCESS, p);
+                interprocess_publishes.emplace(goby::clang::Layer::INTERPROCESS, p, threads);
 
             auto subscribe_node = interprocess_node["subscribes"];
             for (auto s : subscribe_node)
-                interprocess_subscribes.emplace(goby::clang::Layer::INTERPROCESS, s);
+                interprocess_subscribes.emplace(goby::clang::Layer::INTERPROCESS, s, threads);
         }
         auto intervehicle_node = yaml["intervehicle"];
         if (intervehicle_node)
         {
             auto publish_node = intervehicle_node["publishes"];
             for (auto p : publish_node)
-                intervehicle_publishes.emplace(goby::clang::Layer::INTERVEHICLE, p);
+                intervehicle_publishes.emplace(goby::clang::Layer::INTERVEHICLE, p, threads);
 
             auto subscribe_node = intervehicle_node["subscribes"];
             for (auto s : subscribe_node)
-                intervehicle_subscribes.emplace(goby::clang::Layer::INTERVEHICLE, s);
+                intervehicle_subscribes.emplace(goby::clang::Layer::INTERVEHICLE, s, threads);
         }
 
         auto add_threads = [&](const std::set<PubSubEntry>& pubsubs) {
             for (const auto& e : pubsubs)
             {
                 if (!threads.count(e.thread))
-                    threads.emplace(e.thread, Thread(e.thread));
+                    threads.emplace(e.thread, std::make_shared<Thread>(e.thread));
             }
         };
 
@@ -103,7 +126,7 @@ struct Application
     }
 
     std::string name;
-    std::map<std::string, Thread> threads;
+    std::map<std::string, std::shared_ptr<Thread>> threads;
     std::set<PubSubEntry> interprocess_publishes;
     std::set<PubSubEntry> interprocess_subscribes;
     std::set<PubSubEntry> intervehicle_publishes;
@@ -245,12 +268,17 @@ std::string connection_with_label(std::string pub_platform, std::string pub_appl
 std::string disconnected_publication(std::string pub_platform, std::string pub_application,
                                      const PubSubEntry& pub, std::string color)
 {
-    return node_name(pub_platform, pub_application, pub.thread) + "_no_subscribers_" + color +
-           " [label=\"\",style=invis] \n" +
-           connection_with_label_final(pub, node_name(pub_platform, pub_application, pub.thread),
-                                       node_name(pub_platform, pub_application, pub.thread) +
-                                           "_no_subscribers_" + color,
-                                       color);
+    // hide inner publications without subscribers.
+    if (pub.is_inner_pub)
+        return "";
+    else
+        return node_name(pub_platform, pub_application, pub.thread) + "_no_subscribers_" + color +
+               " [label=\"\",style=invis] \n" +
+               connection_with_label_final(pub,
+                                           node_name(pub_platform, pub_application, pub.thread),
+                                           node_name(pub_platform, pub_application, pub.thread) +
+                                               "_no_subscribers_" + color,
+                                           color);
 }
 
 std::string disconnected_subscription(std::string sub_platform, std::string sub_application,
@@ -276,7 +304,7 @@ void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
         for (const auto& sub_thread_p : application.threads)
         {
             const auto& sub_thread = sub_thread_p.second;
-            for (const auto& sub : sub_thread.interthread_subscribes)
+            for (const auto& sub : sub_thread->interthread_subscribes)
             {
                 if (goby::clang::connects(pub, sub))
                 {
@@ -473,7 +501,8 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
             for (const auto& thread_p : application.threads)
             {
                 const auto& thread = thread_p.second;
-                for (const auto& sub : thread.interthread_subscribes)
+
+                for (const auto& sub : thread->interthread_subscribes)
                     thread_disconnected_subs.insert(sub);
             }
 
@@ -481,7 +510,7 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
             {
                 const auto& thread = thread_p.second;
 
-                std::string thread_display_name = thread.name;
+                std::string thread_display_name = thread->most_derived_name();
                 using boost::algorithm::replace_all;
                 replace_all(thread_display_name, "&", "&amp;");
                 replace_all(thread_display_name, "\"", "&quot;");
@@ -490,11 +519,12 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
                 replace_all(thread_display_name, ">", "&gt;");
                 replace_all(thread_display_name, ", ", ",<br/>");
 
-                ofs << "\t\t\t" << node_name(platform.name, application.name, thread.name)
+                ofs << "\t\t\t"
+                    << node_name(platform.name, application.name, thread->most_derived_name())
                     << " [label=<" << thread_display_name << ">,fontcolor=" << thread_color
                     << ",shape=box]\n";
 
-                write_thread_connections(ofs, platform, application, thread,
+                write_thread_connections(ofs, platform, application, *thread,
                                          thread_disconnected_subs);
             }
 

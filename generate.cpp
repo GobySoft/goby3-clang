@@ -58,7 +58,6 @@ std::map<Layer, std::string> layer_to_str{{Layer::UNKNOWN, "unknown"},
                                     refersToIntegralType(qualType(asString("int"))))))));
 }
 
-
 class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallback
 {
   public:
@@ -89,14 +88,15 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
             layer = Layer::INTERVEHICLE;
 
         std::string thread = "unknown";
+        std::set<std::string> bases;
         if (on_thread_decl)
         {
-            // todo: see if there's a cleaner way to get this with the template parameters
-            thread = on_thread_decl->getTypeForDecl()->getCanonicalTypeInternal().getAsString();
-            std::string class_str = "class ";
-            if (thread.find(class_str) != std::string::npos)
-                thread = thread.substr(class_str.size());
+            thread = as_string(*on_thread_decl);
+            for (auto it = on_thread_decl->bases_begin(), end = on_thread_decl->bases_end();
+                 it != end; ++it)
+                bases.insert(as_string(*(it->getType()->getAsCXXRecordDecl())));
         }
+        bases_[thread] = bases;
 
         const std::string group = group_string_lit->getString().str();
         const std::string type = type_arg->getAsType().getAsString();
@@ -111,13 +111,39 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
     }
 
     const std::set<PubSubEntry>& entries() const { return entries_; }
+    const std::set<std::string>& bases(const std::string& thread) { return bases_[thread]; }
+
+  private:
+    std::string as_string(const clang::Type& type)
+    {
+        // todo: see if there's a cleaner way to get this with the template parameters
+        std::string str(type.getCanonicalTypeInternal().getAsString());
+
+        // remove class, struct
+        std::string class_str = "class ";
+        if (str.find(class_str) == 0)
+            str = str.substr(class_str.size());
+
+        std::string struct_str = "struct ";
+        if (str.find(struct_str) == 0)
+            str = str.substr(struct_str.size());
+
+        return str;
+    }
+
+    std::string as_string(const clang::CXXRecordDecl& cxx_decl)
+    {
+        return as_string(*(cxx_decl.getTypeForDecl()));
+    }
 
   private:
     std::set<PubSubEntry> entries_;
+    // map thread to bases
+    std::map<std::string, std::set<std::string>> bases_;
 };
 
-int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_directory, std::string output_file,
-                          std::string target_name)
+int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_directory,
+                          std::string output_file, std::string target_name)
 {
     PubSubAggregator publish_aggregator, subscribe_aggregator;
     ::clang::ast_matchers::MatchFinder finder;
@@ -125,9 +151,9 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
     finder.addMatcher(pubsub_matcher("publish"), &publish_aggregator);
     finder.addMatcher(pubsub_matcher("subscribe"), &subscribe_aggregator);
 
-    if(output_file.empty())
+    if (output_file.empty())
         output_file = target_name + "_interface.yml";
-    
+
     std::string file_name(output_directory + "/" + output_file);
     std::ofstream ofs(file_name.c_str());
     if (!ofs.is_open())
@@ -152,9 +178,8 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
     }
 
     // intervehicle requires interprocess at this point
-    if(layers_in_use.count(Layer::INTERVEHICLE))
+    if (layers_in_use.count(Layer::INTERVEHICLE))
         layers_in_use.insert(Layer::INTERPROCESS);
-    
 
     YAML::Emitter yaml_out;
     {
@@ -177,7 +202,8 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
                     {
                         // show inner publications
                         if (e.layer >= layer && (layer != Layer::INTERTHREAD || e.thread == thread))
-                            e.write_yaml_map(yaml_out, layer != Layer::INTERTHREAD);
+                            e.write_yaml_map(yaml_out, layer != Layer::INTERTHREAD,
+                                             e.layer > layer);
                     }
                 }
 
@@ -201,6 +227,18 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
                     goby::yaml::YMap thread_map(yaml_out);
                     {
                         thread_map.add("name", thread);
+
+                        const auto& pub_bases = publish_aggregator.bases(thread);
+                        const auto& sub_bases = subscribe_aggregator.bases(thread);
+                        auto bases(pub_bases);
+                        bases.insert(sub_bases.begin(), sub_bases.end());
+                        if (!bases.empty())
+                        {
+                            thread_map.add_key("bases");
+                            goby::yaml::YSeq bases_seq(yaml_out);
+                            for (const auto& base : bases) bases_seq.add(base);
+                        }
+
                         emit_pub_sub(thread_map, thread);
                     }
                 }
