@@ -169,9 +169,9 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
             root_map.add_key(layer_to_str.at(layer));
             goby::yaml::YMap layer_map(yaml_out);
 
-            auto emit_pub_sub = [&](const std::string& thread) {
+            auto emit_pub_sub = [&](goby::yaml::YMap& map, const std::string& thread) {
                 {
-                    layer_map.add_key("publishes");
+                    map.add_key("publishes");
                     goby::yaml::YSeq publish_seq(yaml_out);
                     for (const auto& e : publish_aggregator.entries())
                     {
@@ -182,7 +182,7 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
                 }
 
                 {
-                    layer_map.add_key("subscribes");
+                    map.add_key("subscribes");
                     goby::yaml::YSeq subscribe_seq(yaml_out);
                     for (const auto& e : subscribe_aggregator.entries())
                     {
@@ -194,16 +194,20 @@ int goby::clang::generate(::clang::tooling::ClangTool& Tool, std::string output_
 
             if (layer == Layer::INTERTHREAD)
             {
+                layer_map.add_key("threads");
+                goby::yaml::YSeq thread_seq(yaml_out);
                 for (const auto& thread : threads_in_use)
                 {
-                    layer_map.add_key(thread);
                     goby::yaml::YMap thread_map(yaml_out);
-                    emit_pub_sub(thread);
+                    {
+                        thread_map.add("name", thread);
+                        emit_pub_sub(thread_map, thread);
+                    }
                 }
             }
             else
             {
-                emit_pub_sub("");
+                emit_pub_sub(layer_map, "");
             }
         }
     }

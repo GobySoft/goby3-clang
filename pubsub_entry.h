@@ -82,6 +82,18 @@ inline bool connects(const PubSubEntry& a, const PubSubEntry& b)
            a.type == b.type;
 }
 
+inline void remove_disconnected(PubSubEntry pub, PubSubEntry sub,
+                                std::set<PubSubEntry>& disconnected_pubs,
+                                std::set<PubSubEntry>& disconnected_subs)
+{
+    disconnected_pubs.erase(pub);
+    disconnected_subs.erase(sub);
+
+    auto cxx_sub = sub;
+    cxx_sub.scheme = "CXX_OBJECT";
+    disconnected_subs.erase(cxx_sub);
+}
+
 } // namespace clang
 } // namespace goby
 

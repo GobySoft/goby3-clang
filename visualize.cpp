@@ -55,9 +55,13 @@ struct Application
         auto interthread_node = yaml["interthread"];
         if (interthread_node)
         {
-            for (auto it = interthread_node.begin(), end = interthread_node.end(); it != end; ++it)
-                threads.emplace(it->first.as<std::string>(),
-                                Thread(it->first.as<std::string>(), it->second));
+            auto threads_node = interthread_node["threads"];
+            for (auto it = threads_node.begin(), end = threads_node.end(); it != end; ++it)
+            {
+                auto thread_node = *it;
+                auto thread_name = thread_node["name"].as<std::string>();
+                threads.emplace(thread_name, Thread(thread_name, thread_node));
+            }
         }
 
         auto interprocess_node = yaml["interprocess"];
@@ -220,23 +224,53 @@ std::string node_name(std::string p, std::string a, std::string th)
     return p + "_" + a + "_" + th;
 }
 
-std::string connection_with_label(std::string pub_platform, std::string pub_application,
-                                  const PubSubEntry& pub, std::string sub_platform,
-                                  std::string sub_application, const PubSubEntry& sub,
-                                  std::string color)
+std::string connection_with_label_final(const PubSubEntry& pub, std::string pub_str,
+                                        std::string sub_str, std::string color)
 {
-    return node_name(pub_platform, pub_application, pub.thread) + "->" +
-           node_name(sub_platform, sub_application, sub.thread) + "[label=<<b>" + pub.group +
+    return pub_str + "->" + sub_str + "[label=<<b>" + pub.group +
            "</b><br/><font point-size=\"8\">" + pub.scheme +
            "</font><br/><font point-size=\"10\">" + pub.type + "</font>>" + "color=" + color +
            "]\n";
 }
 
-void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
-                              const viz::Application& application, const viz::Thread& thread)
+std::string connection_with_label(std::string pub_platform, std::string pub_application,
+                                  const PubSubEntry& pub, std::string sub_platform,
+                                  std::string sub_application, const PubSubEntry& sub,
+                                  std::string color)
 {
+    return connection_with_label_final(pub, node_name(pub_platform, pub_application, pub.thread),
+                                       node_name(sub_platform, sub_application, sub.thread), color);
+}
+
+std::string disconnected_publication(std::string pub_platform, std::string pub_application,
+                                     const PubSubEntry& pub, std::string color)
+{
+    return node_name(pub_platform, pub_application, pub.thread) +
+           "_no_subscribers_" + color + " [label=\"\",style=invis] \n" +
+           connection_with_label_final(
+               pub, node_name(pub_platform, pub_application, pub.thread),
+               node_name(pub_platform, pub_application, pub.thread) + "_no_subscribers_" + color, color);
+}
+
+std::string disconnected_subscription(std::string sub_platform, std::string sub_application,
+                                      const PubSubEntry& sub, std::string color)
+{
+    return node_name(sub_platform, sub_application, sub.thread) +
+           "_no_publishers_" + color +" [label=\"\",style=invis] \n" +
+           connection_with_label_final(
+               sub, node_name(sub_platform, sub_application, sub.thread) + "_no_publishers_" + color,
+               node_name(sub_platform, sub_application, sub.thread), color);
+}
+
+void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
+                              const viz::Application& application, const viz::Thread& thread,
+                              std::set<PubSubEntry>& disconnected_subs)
+{
+    std::set<PubSubEntry> disconnected_pubs;
     for (const auto& pub : thread.interthread_publishes)
     {
+        disconnected_pubs.insert(pub);
+
         for (const auto& sub_thread_p : application.threads)
         {
             const auto& sub_thread = sub_thread_p.second;
@@ -244,6 +278,7 @@ void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
             {
                 if (goby::clang::connects(pub, sub))
                 {
+                    remove_disconnected(pub, sub, disconnected_pubs, disconnected_subs);
                     ofs << "\t\t\t"
                         << connection_with_label(platform.name, application.name, pub,
                                                  platform.name, application.name, sub, thread_color)
@@ -252,19 +287,29 @@ void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
             }
         }
     }
+
+    for (const auto& pub : disconnected_pubs)
+        ofs << "\t\t\t"
+            << disconnected_publication(platform.name, application.name, pub, thread_color) << "\n";
 }
 
 void write_process_connections(std::ofstream& ofs, const viz::Platform& platform,
-                               const viz::Application& pub_application)
+                               const viz::Application& pub_application,
+                               std::map<std::string, std::set<PubSubEntry>>& disconnected_subs)
 {
+    std::set<PubSubEntry> disconnected_pubs;
+
     for (const auto& pub : pub_application.interprocess_publishes)
     {
+        disconnected_pubs.insert(pub);
         for (const auto& sub_application : platform.applications)
         {
             for (const auto& sub : sub_application.interprocess_subscribes)
             {
                 if (goby::clang::connects(pub, sub))
                 {
+                    remove_disconnected(pub, sub, disconnected_pubs, disconnected_subs[sub_application.name]);
+
                     ofs << "\t\t"
                         << connection_with_label(platform.name, pub_application.name, pub,
                                                  platform.name, sub_application.name, sub,
@@ -274,14 +319,22 @@ void write_process_connections(std::ofstream& ofs, const viz::Platform& platform
             }
         }
     }
+
+    for (const auto& pub : disconnected_pubs)
+        ofs << "\t\t\t"
+            << disconnected_publication(platform.name, pub_application.name, pub, process_color)
+            << "\n";
 }
 
 void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deployment,
                                const viz::Platform& pub_platform,
-                               const viz::Application& pub_application)
+                               const viz::Application& pub_application,
+                               std::map<std::string, std::map<std::string, std::set<PubSubEntry>>>& disconnected_subs)
 {
+    std::set<PubSubEntry> disconnected_pubs;
     for (const auto& pub : pub_application.intervehicle_publishes)
     {
+        disconnected_pubs.insert(pub);
         for (const auto& sub_platform : deployment.platforms)
         {
             for (const auto& sub_application : sub_platform.applications)
@@ -290,6 +343,8 @@ void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deploy
                 {
                     if (goby::clang::connects(pub, sub))
                     {
+                        remove_disconnected(pub, sub, disconnected_pubs, disconnected_subs[sub_platform.name][sub_application.name]);
+
                         ofs << "\t\t"
                             << connection_with_label(pub_platform.name, pub_application.name, pub,
                                                      sub_platform.name, sub_application.name, sub,
@@ -300,6 +355,11 @@ void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deploy
             }
         }
     }
+
+    for (const auto& pub : disconnected_pubs)
+        ofs << "\t\t\t"
+            << disconnected_publication(pub_platform.name, pub_application.name, pub, vehicle_color)
+            << "\n";
 }
 
 int goby::clang::visualize(const std::vector<std::string>& yamls, std::string output_directory,
@@ -362,9 +422,9 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
     viz::Deployment deployment(deployment_name, platform_yamls);
 
-    if(output_file.empty())
+    if (output_file.empty())
         output_file = deployment.name + ".dot";
-    
+
     std::string file_name(output_directory + "/" + output_file);
     std::ofstream ofs(file_name.c_str());
     if (!ofs.is_open())
@@ -375,34 +435,83 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
     int cluster = 0;
     ofs << "digraph " << deployment.name << " { \n";
+
+    std::map<std::string, std::map<std::string, std::set<PubSubEntry>>> platform_disconnected_subs;
+
     for (const auto& platform : deployment.platforms)
     {
         ofs << "\tsubgraph cluster_" << cluster++ << " {\n";
         ofs << "\tlabel=\"" << platform.name << "\"\n";
         ofs << "\tfontcolor=\"" << vehicle_color << "\"\n";
+
+        std::map<std::string, std::set<PubSubEntry>> process_disconnected_subs;
+        for (const auto& application : platform.applications)
+        {
+            for (const auto& sub : application.interprocess_subscribes)
+                process_disconnected_subs[application.name].insert(sub);
+        }
+
         for (const auto& application : platform.applications)
         {
             ofs << "\t\tsubgraph cluster_" << cluster++ << " {\n";
             ofs << "\t\tlabel=\"" << application.name << "\"\n";
             ofs << "\t\tfontcolor=\"" << process_color << "\"\n";
+
+            std::set<PubSubEntry> thread_disconnected_subs;
+            for (const auto& thread_p : application.threads)
+            {
+                const auto& thread = thread_p.second;
+                for (const auto& sub : thread.interthread_subscribes)
+                    thread_disconnected_subs.insert(sub);
+            }
+
             for (const auto& thread_p : application.threads)
             {
                 const auto& thread = thread_p.second;
 
+                std::string thread_display_name = thread.name;
+                using boost::algorithm::replace_all;
+                replace_all(thread_display_name, "&", "&amp;");
+                replace_all(thread_display_name, "\"", "&quot;");
+                replace_all(thread_display_name, "\'", "&apos;");
+                replace_all(thread_display_name, "<", "&lt;");
+                replace_all(thread_display_name, ">", "&gt;");
+                replace_all(thread_display_name, ", ", ",<br/>");
+
                 ofs << "\t\t\t" << node_name(platform.name, application.name, thread.name)
-                    << " [label=\"" << thread.name << "\",fontcolor=" << thread_color
+                    << " [label=<" << thread_display_name << ">,fontcolor=" << thread_color
                     << ",shape=box]\n";
 
-                write_thread_connections(ofs, platform, application, thread);
+                write_thread_connections(ofs, platform, application, thread,
+                                         thread_disconnected_subs);
             }
+
+            for (const auto& sub : thread_disconnected_subs)
+            {
+                ofs << "\t\t\t"
+                    << disconnected_subscription(platform.name, application.name, sub, thread_color)
+                    << "\n";
+            }
+
             ofs << "\t\t}\n";
 
-            write_process_connections(ofs, platform, application);
+            write_process_connections(ofs, platform, application, process_disconnected_subs);
         }
+
+        for (const auto& sub_p : process_disconnected_subs)
+        {
+            for(const auto& sub : sub_p.second)
+            {
+                ofs << "\t\t\t"
+                    << disconnected_subscription(platform.name, sub_p.first, sub, process_color)
+                    << "\n";
+            }
+        }
+
         ofs << "\t}\n";
 
         for (const auto& application : platform.applications)
-            write_vehicle_connections(ofs, deployment, platform, application);
+            write_vehicle_connections(ofs, deployment, platform, application, platform_disconnected_subs);
     }
 
     ofs << "}\n";
