@@ -245,21 +245,23 @@ std::string connection_with_label(std::string pub_platform, std::string pub_appl
 std::string disconnected_publication(std::string pub_platform, std::string pub_application,
                                      const PubSubEntry& pub, std::string color)
 {
-    return node_name(pub_platform, pub_application, pub.thread) +
-           "_no_subscribers_" + color + " [label=\"\",style=invis] \n" +
-           connection_with_label_final(
-               pub, node_name(pub_platform, pub_application, pub.thread),
-               node_name(pub_platform, pub_application, pub.thread) + "_no_subscribers_" + color, color);
+    return node_name(pub_platform, pub_application, pub.thread) + "_no_subscribers_" + color +
+           " [label=\"\",style=invis] \n" +
+           connection_with_label_final(pub, node_name(pub_platform, pub_application, pub.thread),
+                                       node_name(pub_platform, pub_application, pub.thread) +
+                                           "_no_subscribers_" + color,
+                                       color);
 }
 
 std::string disconnected_subscription(std::string sub_platform, std::string sub_application,
                                       const PubSubEntry& sub, std::string color)
 {
-    return node_name(sub_platform, sub_application, sub.thread) +
-           "_no_publishers_" + color +" [label=\"\",style=invis] \n" +
-           connection_with_label_final(
-               sub, node_name(sub_platform, sub_application, sub.thread) + "_no_publishers_" + color,
-               node_name(sub_platform, sub_application, sub.thread), color);
+    return node_name(sub_platform, sub_application, sub.thread) + "_no_publishers_" + color +
+           " [label=\"\",style=invis] \n" +
+           connection_with_label_final(sub,
+                                       node_name(sub_platform, sub_application, sub.thread) +
+                                           "_no_publishers_" + color,
+                                       node_name(sub_platform, sub_application, sub.thread), color);
 }
 
 void write_thread_connections(std::ofstream& ofs, const viz::Platform& platform,
@@ -308,7 +310,8 @@ void write_process_connections(std::ofstream& ofs, const viz::Platform& platform
             {
                 if (goby::clang::connects(pub, sub))
                 {
-                    remove_disconnected(pub, sub, disconnected_pubs, disconnected_subs[sub_application.name]);
+                    remove_disconnected(pub, sub, disconnected_pubs,
+                                        disconnected_subs[sub_application.name]);
 
                     ofs << "\t\t"
                         << connection_with_label(platform.name, pub_application.name, pub,
@@ -326,10 +329,10 @@ void write_process_connections(std::ofstream& ofs, const viz::Platform& platform
             << "\n";
 }
 
-void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deployment,
-                               const viz::Platform& pub_platform,
-                               const viz::Application& pub_application,
-                               std::map<std::string, std::map<std::string, std::set<PubSubEntry>>>& disconnected_subs)
+void write_vehicle_connections(
+    std::ofstream& ofs, const viz::Deployment& deployment, const viz::Platform& pub_platform,
+    const viz::Application& pub_application,
+    std::map<std::string, std::map<std::string, std::set<PubSubEntry>>>& disconnected_subs)
 {
     std::set<PubSubEntry> disconnected_pubs;
     for (const auto& pub : pub_application.intervehicle_publishes)
@@ -343,7 +346,9 @@ void write_vehicle_connections(std::ofstream& ofs, const viz::Deployment& deploy
                 {
                     if (goby::clang::connects(pub, sub))
                     {
-                        remove_disconnected(pub, sub, disconnected_pubs, disconnected_subs[sub_platform.name][sub_application.name]);
+                        remove_disconnected(
+                            pub, sub, disconnected_pubs,
+                            disconnected_subs[sub_platform.name][sub_application.name]);
 
                         ofs << "\t\t"
                             << connection_with_label(pub_platform.name, pub_application.name, pub,
@@ -437,6 +442,13 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
     ofs << "digraph " << deployment.name << " { \n";
 
     std::map<std::string, std::map<std::string, std::set<PubSubEntry>>> platform_disconnected_subs;
+    for (const auto& sub_platform : deployment.platforms)
+    {
+        for (const auto& sub_application : sub_platform.applications)
+        {
+            for (const auto& sub : sub_application.intervehicle_subscribes)
+            { platform_disconnected_subs[sub_platform.name][sub_application.name].insert(sub); } }
+    }
 
     for (const auto& platform : deployment.platforms)
     {
@@ -500,7 +512,7 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
         for (const auto& sub_p : process_disconnected_subs)
         {
-            for(const auto& sub : sub_p.second)
+            for (const auto& sub : sub_p.second)
             {
                 ofs << "\t\t\t"
                     << disconnected_subscription(platform.name, sub_p.first, sub, process_color)
@@ -511,7 +523,22 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
         ofs << "\t}\n";
 
         for (const auto& application : platform.applications)
-            write_vehicle_connections(ofs, deployment, platform, application, platform_disconnected_subs);
+            write_vehicle_connections(ofs, deployment, platform, application,
+                                      platform_disconnected_subs);
+    }
+
+    for (const auto& sub_plat_p : platform_disconnected_subs)
+    {
+        for (const auto& sub_app_p : sub_plat_p.second)
+        {
+            for (const auto& sub : sub_app_p.second)
+            {
+                ofs << "\t\t\t"
+                    << disconnected_subscription(sub_plat_p.first, sub_app_p.first, sub,
+                                                 vehicle_color)
+                    << "\n";
+            }
+        }
     }
 
     ofs << "}\n";
