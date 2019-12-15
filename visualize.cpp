@@ -11,7 +11,6 @@ using goby::clang::PubSubEntry;
 
 namespace viz
 {
-
 inline bool operator<(const Thread& a, const Thread& b) { return a.name < b.name; }
 
 inline std::ostream& operator<<(std::ostream& os, const Thread& th)
@@ -80,11 +79,7 @@ struct Application
             }
 
             // after crosslinking, actually parse the yaml
-            for (auto& thread_p : threads)
-            {
-                thread_p.second->parse_yaml();
-            }
-
+            for (auto& thread_p : threads) { thread_p.second->parse_yaml(); }
         }
 
         auto interprocess_node = yaml["interprocess"];
@@ -250,10 +245,9 @@ std::string node_name(std::string p, std::string a, std::string th)
 std::string connection_with_label_final(const PubSubEntry& pub, std::string pub_str,
                                         std::string sub_str, std::string color)
 {
-    return pub_str + "->" + sub_str + "[label=<<b>" + pub.group +
-           "</b><br/><font point-size=\"8\">" + pub.scheme +
-           "</font><br/><font point-size=\"10\">" + pub.type + "</font>>" + "color=" + color +
-           "]\n";
+    return pub_str + "->" + sub_str + "[label=<<b><font point-size=\"10\">" + pub.group +
+           "</font></b><br/><font point-size=\"6\">" + pub.scheme +
+           "</font><br/><font point-size=\"8\">" + pub.type + "</font>>" + "color=" + color + "]\n";
 }
 
 std::string connection_with_label(std::string pub_platform, std::string pub_application,
@@ -468,6 +462,8 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
 
     int cluster = 0;
     ofs << "digraph " << deployment.name << " { \n";
+    ofs << " splines=polyline\n";
+    
 
     std::map<std::string, std::map<std::string, std::set<PubSubEntry>>> platform_disconnected_subs;
     for (const auto& sub_platform : deployment.platforms)
@@ -517,6 +513,11 @@ int goby::clang::visualize(const std::vector<std::string>& yamls, std::string ou
                 replace_all(thread_display_name, "\'", "&apos;");
                 replace_all(thread_display_name, "<", "&lt;");
                 replace_all(thread_display_name, ">", "&gt;");
+
+                boost::algorithm::replace_first(thread_display_name, "&lt;", "<br/>&lt;");
+                replace_all(thread_display_name, "&lt;", "<font point-size=\"10\">&lt;");
+                replace_all(thread_display_name, "&gt;", "&gt;</font>");
+                
                 replace_all(thread_display_name, ", ", ",<br/>");
 
                 ofs << "\t\t\t"

@@ -107,7 +107,7 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
         bases_[thread] = bases;
 
         const std::string group = group_string_lit->getString().str();
-        const std::string type = type_arg->getAsType().getAsString();
+        const std::string type = as_string(*type_arg->getAsType());
         const int scheme_num = scheme_arg->getAsIntegral().getExtValue();
         const std::string scheme = goby::middleware::MarshallingScheme::to_string(scheme_num);
 
@@ -121,7 +121,7 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
     const std::set<PubSubEntry>& entries() const { return entries_; }
     const std::set<std::string>& bases(const std::string& thread) { return bases_[thread]; }
 
-  private:
+  private:    
     std::string as_string(const clang::Type& type)
     {
         // todo: see if there's a cleaner way to get this with the template parameters
