@@ -49,6 +49,11 @@ static cl::opt<std::string>
                         "of yml files or the path to a deployment yml file"),
                cl::value_desc("name"), cl::cat(Goby3ToolCategory));
 
+static cl::opt<bool>
+    OmitDisconnected("no-disconnected",
+                     cl::desc("Do not display arrows representing publishers without subscribers "
+                              "or subscribers without publishers"));
+
 int main(int argc, const char** argv)
 {
     clang::tooling::CommonOptionsParser OptionsParser(argc, argv, Goby3ToolCategory);
@@ -66,7 +71,8 @@ int main(int argc, const char** argv)
     }
     else if (Visualize)
     {
-        return goby::clang::visualize(OptionsParser.getSourcePathList(), OutDir, OutFile, Deployment);
+        return goby::clang::visualize(OptionsParser.getSourcePathList(), OutDir, OutFile,
+                                      Deployment, OmitDisconnected);
     }
     else
     {

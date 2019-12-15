@@ -18,6 +18,8 @@ set(CMAKE_CXX_FLAGS "${LLVM_CXX_FLAGS_CLEAN} ${LLVM_LD_FLAGS_CLEAN} -fexceptions
 include_directories(${GOBY_INCLUDE_DIR})
 
 add_executable(goby_clang_tool tool.cpp generate.cpp visualize.cpp)
+set_target_properties(goby_clang_tool PROPERTIES COMPILE_FLAGS "${LLVM_CXX_FLAGS_CLEAN} ${LLVM_LD_FLAGS_CLEAN} -fexceptions")
+
 target_link_libraries(goby_clang_tool
   PRIVATE
   clangTooling

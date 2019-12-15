@@ -9,6 +9,8 @@
 
 using goby::clang::PubSubEntry;
 
+bool g_omit_disconnected = false;
+
 namespace viz
 {
 inline bool operator<(const Thread& a, const Thread& b) { return a.name < b.name; }
@@ -262,6 +264,9 @@ std::string connection_with_label(std::string pub_platform, std::string pub_appl
 std::string disconnected_publication(std::string pub_platform, std::string pub_application,
                                      const PubSubEntry& pub, std::string color)
 {
+    if(g_omit_disconnected)
+        return "";
+    
     // hide inner publications without subscribers.
     if (pub.is_inner_pub)
         return "";
@@ -278,6 +283,9 @@ std::string disconnected_publication(std::string pub_platform, std::string pub_a
 std::string disconnected_subscription(std::string sub_platform, std::string sub_application,
                                       const PubSubEntry& sub, std::string color)
 {
+    if(g_omit_disconnected)
+        return "";
+
     return node_name(sub_platform, sub_application, sub.thread) + "_no_publishers_" + color +
            " [label=\"\",style=invis] \n" +
            connection_with_label_final(sub,
@@ -390,8 +398,10 @@ void write_vehicle_connections(
 }
 
 int goby::clang::visualize(const std::vector<std::string>& yamls, std::string output_directory,
-                           std::string output_file, std::string deployment_config_input)
+                           std::string output_file, std::string deployment_config_input, bool omit_disconnected)
 {
+    g_omit_disconnected = omit_disconnected;
+    
     std::string deployment_name;
 
     // maps platform name to yaml files
