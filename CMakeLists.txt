@@ -2,9 +2,10 @@ cmake_minimum_required(VERSION 3.5)
 
 project(goby3-clang LANGUAGES CXX)
 
-find_package(LLVM PATHS /usr/lib/llvm-6.0/lib/cmake/llvm)
-#find_package(Clang PATHS /usr/share/llvm-6.0/cmake)
-include_directories(/usr/lib/llvm-6.0/include)
+execute_process(COMMAND llvm-config --cmakedir OUTPUT_VARIABLE LLVM_CMAKE_DIR)
+find_package(LLVM PATHS ${LLVM_CMAKE_DIR})
+execute_process(COMMAND llvm-config --includedir OUTPUT_VARIABLE LLVM_INCLUDE_DIR)
+include_directories(${LLVM_INCLUDE_DIR})
 find_package(yaml-cpp REQUIRED)
 find_package(GOBY 3 REQUIRED)
 

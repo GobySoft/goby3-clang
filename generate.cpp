@@ -35,6 +35,10 @@ std::map<Layer, std::string> layer_to_str{{Layer::UNKNOWN, "unknown"},
                 cxxMemberCallExpr(on(hasType(pointsTo(cxxRecordDecl(
                     cxxRecordDecl().bind("on_thread_decl"),
                     isDerivedFrom(cxxRecordDecl(hasName("::goby::middleware::Thread")))))))),
+                // Thread: match this->goby().interprocess() or similar chains
+                hasDescendant(cxxMemberCallExpr(on(hasType(pointsTo(cxxRecordDecl(
+                    cxxRecordDecl().bind("on_indirect_thread_decl"),
+                    isDerivedFrom(cxxRecordDecl(hasName("::goby::middleware::Thread"))))))))),
                 // also allow out direct calls to publish/subscribe
                 expr().bind("on_expr")),
             hasType(cxxRecordDecl(decl().bind("on_type_decl"),
@@ -73,6 +77,10 @@ class PubSubAggregator : public ::clang::ast_matchers::MatchFinder::MatchCallbac
         const auto* scheme_arg = Result.Nodes.getNodeAs<clang::TemplateArgument>("scheme_arg");
         const auto* on_type_decl = Result.Nodes.getNodeAs<clang::CXXRecordDecl>("on_type_decl");
         const auto* on_thread_decl = Result.Nodes.getNodeAs<clang::CXXRecordDecl>("on_thread_decl");
+
+        if (!on_thread_decl)
+            on_thread_decl =
+                Result.Nodes.getNodeAs<clang::CXXRecordDecl>("on_indirect_thread_decl");
 
         if (!pubsub_call_expr || !group_string_lit || !type_arg || !scheme_arg || !on_type_decl)
             return;
